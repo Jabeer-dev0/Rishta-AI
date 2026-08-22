@@ -37,7 +37,7 @@ const mapUser = (row) => {
   const user = {
     _id: row.id,
     email: row.email,
-    password: undefined,
+    password: row.password,
     name: row.name,
     dateOfBirth: row.date_of_birth,
     age: row.age,
