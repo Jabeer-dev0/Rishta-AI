@@ -2,9 +2,9 @@ const router = require('express').Router();
 const { register, login, logout, getMe, refreshToken, forgotPassword, resetPassword } = require('../controllers/auth.controller');
 const { protect } = require('../middleware/auth.middleware');
 
-const { uploadSingle } = require('../middleware/upload.middleware');
+const { uploadRegisterFields } = require('../middleware/upload.middleware');
 
-router.post('/register', uploadSingle('profilePhoto'), register);
+router.post('/register', uploadRegisterFields, register);
 router.post('/login', login);
 router.post('/logout', logout);
 router.get('/me', protect, getMe);

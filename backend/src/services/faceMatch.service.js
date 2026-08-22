@@ -7,12 +7,20 @@ const API_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 /**
- * Helper to fetch an image from URL and build an OpenAI image_url part
+ * Helper to build an OpenAI image part from a URL or a raw base64 buffer
+ * @param {string|{base64:string, mimeType:string}} source
+ * @param {string} label - for error logs
  */
-async function fetchImagePart(url, label) {
+async function toImagePart(source, label) {
+  if (typeof source === 'object' && source !== null && source.base64) {
+    return {
+      type: 'image_url',
+      image_url: { url: `data:${source.mimeType || 'image/jpeg'};base64,${source.base64}` },
+    };
+  }
   const axios = require('axios');
   try {
-    const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
+    const response = await axios.get(source, { responseType: 'arraybuffer', timeout: 20000 });
     const mimeType = response.headers['content-type'] || 'image/jpeg';
     return {
       type: 'image_url',
@@ -21,7 +29,7 @@ async function fetchImagePart(url, label) {
       },
     };
   } catch (error) {
-    console.error(`Failed to fetch ${label} from ${url}:`, error.message);
+    console.error(`Failed to fetch ${label} from ${source}:`, error.message);
     throw new Error('Could not download image for verification');
   }
 }
@@ -37,6 +45,11 @@ const compareFaces = async (profileImageUrl, selfieImageUrl) => {
     return { verified: false, similarity: 0, message: 'Both images are required' };
   }
 
+  // Dev/test hook: lets automated e2e tests skip the AI roundtrip
+  if (process.env.NODE_ENV !== 'production' && process.env.FORCE_FACE_MATCH_PASS === 'true') {
+    return { verified: true, similarity: 95, message: '[DEV] Face match forced pass' };
+  }
+
   if (!process.env.OPENAI_API_KEY) {
     return {
       verified: false,
@@ -47,8 +60,8 @@ const compareFaces = async (profileImageUrl, selfieImageUrl) => {
 
   try {
     const [profileImg, selfieImg] = await Promise.all([
-      fetchImagePart(profileImageUrl, 'profile photo'),
-      fetchImagePart(selfieImageUrl, 'selfie'),
+      toImagePart(profileImageUrl, 'profile photo'),
+      toImagePart(selfieImageUrl, 'selfie'),
     ]);
 
     const prompt = `

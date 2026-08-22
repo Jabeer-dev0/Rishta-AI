@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Heart, User, Calendar, MapPin, GraduationCap,
   Briefcase, Hash, Upload, Camera, CheckCircle,
-  Shield
+  Shield, IdCard
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -14,15 +14,16 @@ import { Textarea } from '../components/ui/textarea';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 
-const TOTAL_STEPS = 3;
+const TOTAL_STEPS = 4;
 
 const stepTitles = [
   'Basic Information',
   'Professional Background',
   'Account Setup',
+  'Identity Verification',
 ];
 
-const stepIcons = [User, Briefcase, Shield];
+const stepIcons = [User, Briefcase, Shield, IdCard];
 
 export default function SignupPage() {
   const navigate = useNavigate();
@@ -31,6 +32,13 @@ export default function SignupPage() {
 
   const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
+  const [cnicFront, setCnicFront] = useState<File | null>(null);
+  const [cnicBack, setCnicBack] = useState<File | null>(null);
+  const [selfie, setSelfie] = useState<File | null>(null);
+  const [frontPreview, setFrontPreview] = useState<string | null>(null);
+  const [backPreview, setBackPreview] = useState<string | null>(null);
+  const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -45,6 +53,7 @@ export default function SignupPage() {
     familyBackground: '',
     email: '',
     password: '',
+    cnic: '',
   });
 
   const handleChange = (field: string, value: string) => {
@@ -77,6 +86,55 @@ export default function SignupPage() {
     }
   };
 
+  const fileToState = (
+    file: File | null,
+    setter: (f: File | null) => void,
+    previewSetter: (s: string | null) => void
+  ) => {
+    setter(file);
+    if (!file) { previewSetter(null); return; }
+    const reader = new FileReader();
+    reader.onloadend = () => previewSetter(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  /** Per-step validation — account cannot proceed without required data. */
+  const validateStep = (current: number): string | null => {
+    if (current === 1) {
+      if (!formData.name.trim()) return 'Full name is required';
+      if (!formData.dateOfBirth) return 'Date of birth is required';
+      if (!formData.gender) return 'Gender is required';
+      if (!formData.religion.trim()) return 'Religion is required';
+      if (!formData.city.trim()) return 'City is required';
+      if (!profilePhoto) return 'Profile photo is required';
+    }
+    if (current === 2) {
+      if (!formData.education.trim()) return 'Education is required';
+      if (!formData.profession.trim()) return 'Profession is required';
+      if (!formData.interests.trim()) return 'At least one interest is required';
+      if (!formData.familyBackground.trim()) return 'Family background is required';
+    }
+    if (current === 3) {
+      if (!formData.email.trim()) return 'Email is required';
+      if (formData.password.length < 6) return 'Password must be at least 6 characters';
+    }
+    if (current === 4) {
+      const digits = formData.cnic.replace(/\D/g, '');
+      if (digits.length !== 13) return 'CNIC must be exactly 13 digits (e.g. 35201-1234567-1)';
+      if (!cnicFront) return 'CNIC front side photo is required';
+      if (!cnicBack) return 'CNIC back side photo is required';
+      if (!selfie) return 'A live selfie is required for face verification';
+    }
+    return null;
+  };
+
+  const nextStep = () => {
+    const err = validateStep(step);
+    if (err) { toast.error(err); return; }
+    if (step < TOTAL_STEPS) setStep(step + 1);
+  };
+  const prevStep = () => { if (step > 1) setStep(step - 1); };
+
   const [step, setStep] = useState(1);
 
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -99,23 +157,22 @@ export default function SignupPage() {
       
       const interests = formData.interests.split(',').map(i => i.trim()).filter(Boolean);
       data.append('interests', JSON.stringify(interests));
-      
-      if (profilePhoto) {
-        data.append('profilePhoto', profilePhoto);
-      }
+      data.append('cnic', formData.cnic);
+
+      if (profilePhoto) data.append('profilePhoto', profilePhoto);
+      if (cnicFront) data.append('cnicFront', cnicFront);
+      if (cnicBack) data.append('cnicBack', cnicBack);
+      if (selfie) data.append('selfie', selfie);
 
       await signup(data as any);
-      toast.success('Account created! Welcome to Rishtaai 🎉');
+      toast.success('Account created & identity verified! Welcome to Rishtaai 🎉');
       navigate('/app');
     } catch (err: any) {
-      toast.error(err.message || 'Failed to create account');
+      toast.error(err.message || 'Verification failed — please check your documents');
     } finally {
       setLoading(false);
     }
   };
-
-  const nextStep = () => { if (step < TOTAL_STEPS) setStep(step + 1); };
-  const prevStep = () => { if (step > 1) setStep(step - 1); };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FFE5EC] via-white to-pink-50 py-10 px-4">
@@ -357,6 +414,76 @@ export default function SignupPage() {
 
 
 
+              {/* ─── Step 4: Identity Verification ─── */}
+              {step === 4 && (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex gap-3">
+                    <Shield className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      Aik CNIC = aik account. Aapka CNIC number, naam aur tareekh-e-paidaish card se AI ke zariye verify hongi,
+                      aur selfie aapke CNIC photo se match ki jayegi. Documents sirf verification ke liye save hote hain.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>CNIC Number *</Label>
+                    <div className="relative">
+                      <IdCard className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <Input placeholder="35201-1234567-1" value={formData.cnic}
+                        onChange={e => handleChange('cnic', e.target.value)}
+                        className="pl-9 bg-gray-50 border-gray-200" required />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { key: 'front', label: 'CNIC Front *', file: cnicFront, preview: frontPreview, setFile: setCnicFront },
+                      { key: 'back', label: 'CNIC Back *', file: cnicBack, preview: backPreview, setFile: setCnicBack },
+                    ].map(({ key, label, file, preview, setFile }) => (
+                      <div key={key} className="space-y-1.5">
+                        <Label>{label}</Label>
+                        <button type="button"
+                          onClick={() => document.getElementById(`cnic-${key}-input`)?.click()}
+                          className={`w-full aspect-[3/2] rounded-xl border-2 border-dashed flex items-center justify-center overflow-hidden transition-all ${preview ? 'border-green-400 bg-green-50' : 'border-gray-200 hover:border-[#D70040] hover:bg-pink-50'}`}>
+                          {preview ? (
+                            <img src={preview} alt={`${key} preview`} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="flex flex-col items-center text-gray-400">
+                              <Upload className="w-6 h-6 mb-1" />
+                              <span className="text-[10px]">Upload</span>
+                            </div>
+                          )}
+                        </button>
+                        <input id={`cnic-${key}-input`} type="file" accept="image/*" className="hidden"
+                          onChange={(e) => fileToState(e.target.files?.[0] || null, setFile as any, key === 'front' ? setFrontPreview : setBackPreview)} />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>Live Selfie * <span className="text-gray-400 font-normal text-xs">(CNIC photo se match hogi)</span></Label>
+                    <div className="flex items-center gap-4">
+                      <button type="button"
+                        onClick={() => document.getElementById('selfie-input')?.click()}
+                        className={`w-20 h-20 rounded-full border-2 border-dashed flex items-center justify-center overflow-hidden transition-all ${selfiePreview ? 'border-green-400 bg-green-50' : 'border-gray-200 hover:border-[#D70040] hover:bg-pink-50'}`}>
+                        {selfiePreview ? (
+                          <img src={selfiePreview} alt="selfie preview" className="w-full h-full object-cover" />
+                        ) : (
+                          <Camera className="w-7 h-7 text-gray-400" />
+                        )}
+                      </button>
+                      <input id="selfie-input" type="file" accept="image/*" capture="user" className="hidden"
+                        onChange={(e) => fileToState(e.target.files?.[0] || null, setSelfie, setSelfiePreview)} />
+                      <p className="text-xs text-gray-400 leading-relaxed">
+                        Achhi roshni mein saaf selfie lein — ye aapke CNIC ki photo se match ki jayegi.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+
+
               {/* Nav Buttons */}
               <div className="flex gap-3 mt-7">
                 {step > 1 && (
@@ -379,9 +506,9 @@ export default function SignupPage() {
                     onClick={handleSubmit as any}
                   >
                     {loading ? (
-                      <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Creating...</>
+                      <>Verifying documents... (up to 1 min)</>
                     ) : (
-                      <>🎉 Create My Profile</>
+                      <>🪪 Verify & Create Account</>
                     )}
                   </Button>
                 )}

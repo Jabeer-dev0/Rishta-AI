@@ -204,6 +204,17 @@ const create = async (data) => {
     blockedUsers: [],
     notificationPrefs: { matches: true, messages: true, requests: true, marketing: false },
     lastActiveAt: now,
+    // Optional verification/identity fields (set during strict signup)
+    selfieImageUrl: data.selfieImageUrl || null,
+    cnicNumber: data.cnicNumber || null,
+    cnicImageUrl: data.cnicImageUrl || null,
+    cnicFrontUrl: data.cnicFrontUrl || null,
+    cnicBackUrl: data.cnicBackUrl || null,
+    cnicVerified: data.cnicVerified ?? false,
+    verified: data.verified ?? false,
+    verificationStatus: data.verificationStatus || 'unverified',
+    verifiedAt: data.verifiedAt || null,
+    profileCompletion: data.profileCompletion ?? 40,
   };
 
   const cols = Object.keys(payload).map((k) => COLUMN_MAP[k] || k);

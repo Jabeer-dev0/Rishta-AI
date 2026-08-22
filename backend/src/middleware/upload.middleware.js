@@ -52,6 +52,18 @@ const uploadCnicFields = multer({
   { name: 'cnicBack', maxCount: 1 }
 ]);
 
+// Full registration package: profile photo + CNIC front/back + live selfie
+const uploadRegisterFields = multer({
+  storage: memoryStorage,
+  fileFilter: imageFilter,
+  limits: { fileSize: 15 * 1024 * 1024 },
+}).fields([
+  { name: 'profilePhoto', maxCount: 1 },
+  { name: 'cnicFront', maxCount: 1 },
+  { name: 'cnicBack', maxCount: 1 },
+  { name: 'selfie', maxCount: 1 }
+]);
+
 /** Ext from mimetype (jpeg/png/webp/...), fallback jpg */
 const extFromMime = (mime) => {
   const map = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
@@ -81,6 +93,7 @@ module.exports = {
   uploadSingle,
   uploadDocs,
   uploadCnicFields,
+  uploadRegisterFields,
   uploadCnicToCloudinary,
   uploadPhotoToCloudinary
 };
