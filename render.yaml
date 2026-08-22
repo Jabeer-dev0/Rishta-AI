@@ -18,7 +18,11 @@ services:
         value: 15m
       - key: JWT_REFRESH_EXPIRES_IN
         value: 7d
-      - key: MONGO_URI
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_D1_DATABASE_ID
+        sync: false
+      - key: CLOUDFLARE_D1_API_TOKEN
         sync: false
       - key: CLOUDINARY_CLOUD_NAME
         sync: false

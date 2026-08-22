@@ -189,31 +189,22 @@ const generateMatchPool = async (userId) => {
   if (!currentUser) return;
 
   // Find all potential candidates
-  const candidates = await User.find({ _id: { $ne: userId }, isActive: true, role: 'user' });
+  const rows = await User.queryRows(
+    "SELECT * FROM users WHERE id != ? AND is_active = 1 AND role = 'user' AND is_blocked = 0",
+    [userId]
+  );
+  const candidates = rows.map(User.mapUser);
   const filtered = filterCandidates(currentUser, candidates);
 
-  const matches = filtered.map(candidate => {
+  for (const candidate of filtered) {
     const score = computeCompatibilityScore(currentUser, candidate);
     const reasons = generateMatchReasons(currentUser, candidate);
-
-    return {
-      updateOne: {
-        filter: { user: userId, matchedUser: candidate._id },
-        update: {
-          $set: {
-            compatibilityScore: score,
-            matchReasons: reasons,
-            isActive: true,
-            generatedAt: new Date()
-          }
-        },
-        upsert: true
-      }
-    };
-  });
-
-  if (matches.length > 0) {
-    await Match.bulkWrite(matches);
+    await Match.upsertOne({
+      userId,
+      matchedUserId: candidate._id,
+      compatibilityScore: score,
+      matchReasons: reasons,
+    });
   }
 };
 

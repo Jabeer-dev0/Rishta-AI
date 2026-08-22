@@ -1,6 +1,6 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
-const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const db = require('../config/db');
 
 const User = require('../models/User.model');
 const Match = require('../models/Match.model');
@@ -183,8 +183,8 @@ const MATCH_PAIRS = [
 ];
 
 const CONVERSATION_PAIRS = [
-  [0, 0], // Ahmed ↔ Zara
-  [1, 1], // Bilal ↔ Ayesha
+  [0, 0], // Ahmed <-> Zara
+  [1, 1], // Bilal <-> Ayesha
 ];
 
 const MESSAGES_PAIR_0 = [
@@ -192,7 +192,7 @@ const MESSAGES_PAIR_0 = [
   { senderIdx: 'female', text: 'Wa Alaikum Assalam Ahmed! Thank you, your profile is lovely as well.' },
   { senderIdx: 'male', text: 'I noticed we share a love for travel. What has been your favourite destination so far?' },
   { senderIdx: 'female', text: 'Definitely Istanbul! The culture and food was incredible. Have you travelled internationally?' },
-  { senderIdx: 'male', text: 'Yes! I visited Turkey last year as well. Perhaps we have similar taste 😊' },
+  { senderIdx: 'male', text: 'Yes! I visited Turkey last year as well. Perhaps we have similar taste :)' },
   { senderIdx: 'female', text: 'That is quite a coincidence! I would love to know more about your family background.' },
   { senderIdx: 'male', text: 'Of course. My father is a retired teacher and my mother is a homemaker. Very close-knit family.' },
   { senderIdx: 'female', text: 'Mashallah that sounds wonderful! I would love for our families to connect soon.' },
@@ -211,30 +211,33 @@ const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
 // ─── Main Seeder ─────────────────────────────────────────────────────────────
 const seedDB = async () => {
-  await mongoose.connect(process.env.MONGO_URI);
-  console.log('✅ MongoDB Connected');
+  await db.init();
+  console.log('✅ Cloudflare D1 Connected');
 
   // ── Destroy mode ──
   if (process.argv.includes('--destroy')) {
-    await Promise.all([
-      User.deleteMany({}),
-      Match.deleteMany({}),
-      ConnectionRequest.deleteMany({}),
-      Conversation.deleteMany({}),
-      Message.deleteMany({}),
-      Notification.deleteMany({}),
-      PersonalityResult.deleteMany({}),
-    ]);
-    console.log('🗑️  All collections cleared.');
+    await db.exec(`
+      DELETE FROM messages;
+      DELETE FROM conversations;
+      DELETE FROM connection_requests;
+      DELETE FROM matches;
+      DELETE FROM notifications;
+      DELETE FROM personality_results;
+      DELETE FROM reports;
+      DELETE FROM guest_compatibility;
+      DELETE FROM users;
+    `);
+    console.log('🗑️  All tables cleared.');
     process.exit(0);
   }
 
   // ── Clear existing test data ──
-  await User.deleteMany({ email: /@rishtaai\.test$/ });
+  await User.deleteTestUsers();
   console.log('🧹 Cleared existing test users');
 
   // ── Seed Admin ──
-  const adminExists = await User.findOne({ email: process.env.ADMIN_EMAIL });
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@rishtaai.com';
+  const adminExists = await User.findByEmail(adminEmail);
   if (!adminExists) {
     await User.create({
       name: 'Admin',
@@ -242,7 +245,7 @@ const seedDB = async () => {
       gender: 'Male',
       religion: 'Islam',
       city: 'Lahore',
-      email: process.env.ADMIN_EMAIL || 'admin@rishtaai.com',
+      email: adminEmail,
       password: process.env.ADMIN_PASSWORD || 'Admin@123456',
       education: 'BS Computer Science',
       profession: 'Platform Administrator',
@@ -280,7 +283,7 @@ const seedDB = async () => {
   // ── Seed Personality Results ──
   for (const user of [...males, ...females]) {
     if (user.personalityScores?.personalityType) {
-      await PersonalityResult.create({
+      await PersonalityResult.upsertForUser({
         user: user._id,
         answers: Array.from({ length: 10 }, (_, i) => ({ questionId: i + 1, score: rand(3, 5) })),
         scores: {
@@ -291,49 +294,34 @@ const seedDB = async () => {
           emotionalStability: user.personalityScores.emotionalStability,
         },
         personalityType: user.personalityScores.personalityType,
+        completedAt: new Date(),
       });
     }
   }
   console.log('🧠 Personality results seeded');
 
-  // ── Seed Matches ──
-  const matchDocs = [];
+  // ── Seed Matches (both directions like the old seeder) ──
+  let matchCount = 0;
   for (const [mi, fi, score, reasons] of MATCH_PAIRS) {
-    // Male → Female match
-    const m1 = await Match.create({
-      user: males[mi]._id,
-      matchedUser: females[fi]._id,
-      compatibilityScore: score,
-      matchReasons: reasons,
-      aiInsights: {
-        personalityMatch: Math.min(100, score + rand(-5, 5)),
-        lifestyleCompatibility: Math.min(100, score + rand(-8, 3)),
-        emotionalCompatibility: Math.min(100, score + rand(-4, 6)),
-        longTermStability: Math.min(100, score + rand(-6, 4)),
-        strengths: reasons.slice(0, 2),
-        potentialHurdles: ['Different cities may require discussion', 'Career schedules to align'],
-      },
-      report: `${males[mi].name} and ${females[fi].name} show exceptional compatibility across multiple dimensions. Their shared values, educational backgrounds and interests create a strong foundation for a meaningful relationship. The AI engine rates this as a highly recommended match.`,
-    });
-    // Female → Male match (reverse)
-    const m2 = await Match.create({
-      user: females[fi]._id,
-      matchedUser: males[mi]._id,
-      compatibilityScore: score,
-      matchReasons: reasons,
-      aiInsights: {
-        personalityMatch: Math.min(100, score + rand(-5, 5)),
-        lifestyleCompatibility: Math.min(100, score + rand(-8, 3)),
-        emotionalCompatibility: Math.min(100, score + rand(-4, 6)),
-        longTermStability: Math.min(100, score + rand(-6, 4)),
-        strengths: reasons.slice(0, 2),
-        potentialHurdles: ['Career alignment needed', 'Family introductions to arrange'],
-      },
-      report: `${females[fi].name} and ${males[mi].name} are highly compatible based on our AI engine analysis.`,
-    });
-    matchDocs.push(m1, m2);
+    for (const [a, b] of [[males[mi], females[fi]], [females[fi], males[mi]]]) {
+      await Match.upsertOne({
+        userId: a._id,
+        matchedUserId: b._id,
+        compatibilityScore: score,
+        matchReasons: reasons,
+        aiInsights: {
+          personalityMatch: Math.min(100, score + rand(-5, 5)),
+          lifestyleCompatibility: Math.min(100, score + rand(-8, 3)),
+          emotionalCompatibility: Math.min(100, score + rand(-4, 6)),
+          longTermStability: Math.min(100, score + rand(-6, 4)),
+          strengths: reasons.slice(0, 2),
+          potentialHurdles: ['Different cities may require discussion', 'Career schedules to align'],
+        },
+      });
+      matchCount++;
+    }
   }
-  console.log(`💑 ${matchDocs.length} match records seeded`);
+  console.log(`💑 ${matchCount} match records seeded`);
 
   // ── Seed Connections + Conversations + Messages ──
   for (const [mi, fi] of CONVERSATION_PAIRS) {
@@ -341,19 +329,17 @@ const seedDB = async () => {
     const femaleUser = females[fi];
 
     // Connection request (accepted)
-    const req = await ConnectionRequest.create({
+    const reqDoc = await ConnectionRequest.create({
       fromUser: maleUser._id,
       toUser: femaleUser._id,
       status: 'accepted',
-      message: `Assalam o Alaikum! I would love to connect.`,
-      updatedAt: new Date(),
+      message: 'Assalam o Alaikum! I would love to connect.',
     });
 
     // Conversation
     const conv = await Conversation.create({
       participants: [maleUser._id, femaleUser._id],
-      connectionRequest: req._id,
-      isActive: true,
+      connectionRequest: reqDoc._id,
     });
 
     // Messages
@@ -364,7 +350,7 @@ const seedDB = async () => {
     for (const m of msgList) {
       const sender = m.senderIdx === 'male' ? maleUser : femaleUser;
       lastTime = new Date(lastTime.getTime() + 5 * 60 * 1000);
-      const msg = await Message.create({
+      await Message.create({
         conversation: conv._id,
         sender: sender._id,
         text: m.text,
@@ -376,11 +362,11 @@ const seedDB = async () => {
       lastMsg = m.text;
     }
 
-    await Conversation.findByIdAndUpdate(conv._id, {
+    await Conversation.updateById(conv._id, {
       lastMessage: lastMsg,
       lastMessageTime: lastTime,
     });
-    console.log(`💬 Conversation seeded: ${maleUser.name} ↔ ${femaleUser.name}`);
+    console.log(`💬 Conversation seeded: ${maleUser.name} <-> ${femaleUser.name}`);
   }
 
   // ── Seed a pending request ──
@@ -404,7 +390,11 @@ const seedDB = async () => {
     { recipient: females[1]._id, type: 'verification_complete', title: 'Identity Verified! ✅', body: 'Your CNIC verification is complete. You now have a Verified badge.' },
   ];
 
-  await Notification.insertMany(notifData.map((n, i) => ({ ...n, isRead: i > 3 })));
+  let i = 0;
+  for (const n of notifData) {
+    await Notification.create({ ...n, isRead: i > 3 });
+    i++;
+  }
   console.log('🔔 Notifications seeded');
 
   // ── Summary ──
@@ -416,7 +406,7 @@ const seedDB = async () => {
   MALE_USERS.forEach(u => console.log(`     ${u.name.padEnd(16)} ${u.email}`));
   console.log('\n  👩 Female Users:');
   FEMALE_USERS.forEach(u => console.log(`     ${u.name.padEnd(16)} ${u.email}`));
-  console.log(`\n  👑 Admin: ${process.env.ADMIN_EMAIL || 'admin@rishtaai.com'} / ${process.env.ADMIN_PASSWORD || 'Admin@123456'}`);
+  console.log(`\n  👑 Admin: ${adminEmail} / ${process.env.ADMIN_PASSWORD || 'Admin@123456'}`);
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
   process.exit(0);

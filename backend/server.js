@@ -8,7 +8,7 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-const connectDB = require('./src/config/db');
+const db = require('./src/config/db');
 const { initSocket } = require('./src/config/socket');
 const { globalLimiter } = require('./src/middleware/rateLimiter.middleware');
 
@@ -26,8 +26,11 @@ const notificationRoutes = require('./src/routes/notification.routes');
 const reportRoutes = require('./src/routes/report.routes');
 const adminRoutes = require('./src/routes/admin.routes');
 
-// Connect to MongoDB
-connectDB();
+// Connect to Cloudflare D1 (also auto-creates the schema)
+db.init().catch((err) => {
+  console.error('❌ D1 init failed:', err.message);
+  process.exit(1);
+});
 
 const app = express();
 const server = http.createServer(app);

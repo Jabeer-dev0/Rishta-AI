@@ -1,4 +1,7 @@
 const User = require('../models/User.model');
+const Match = require('../models/Match.model');
+const ConnectionRequest = require('../models/ConnectionRequest.model');
+const Conversation = require('../models/Conversation.model');
 const { success, error } = require('../utils/response.utils');
 const { uploadToCloudinary } = require('../middleware/upload.middleware');
 
@@ -21,10 +24,11 @@ const updateMyProfile = async (req, res) => {
       updates.interests = updates.interests.split(',').map(s => s.trim()).filter(Boolean);
     }
 
-    // Recalculate profileCompletion
-    const user = await User.findByIdAndUpdate(req.user._id, { $set: updates }, { new: true, runValidators: true });
-    user.profileCompletion = user.calculateCompletion();
-    await user.save({ validateBeforeSave: false });
+    let user = await User.updateById(req.user._id, updates);
+    const completion = User.calculateProfileCompletion(user);
+    if (completion !== user.profileCompletion) {
+      user = await User.updateById(req.user._id, { profileCompletion: completion });
+    }
 
     return success(res, { data: { user: user.toPublicProfile() } }, 'Profile updated successfully');
   } catch (err) {
@@ -39,7 +43,7 @@ const getProfile = async (req, res) => {
     if (!user || !user.isActive) return error(res, 'User not found.', 404);
 
     // Increment profile views
-    await User.findByIdAndUpdate(req.params.userId, { $inc: { profileViews: 1 } });
+    await User.incrementField(req.params.userId, 'profileViews', 1);
 
     const { attachConnectionStatus } = require('../utils/connection.utils');
     const [userWithStatus] = await attachConnectionStatus([user], req.user._id);
@@ -54,18 +58,17 @@ const getProfile = async (req, res) => {
 const uploadPhoto = async (req, res) => {
   try {
     if (!req.file) return error(res, 'No file uploaded.', 400);
-    
+
     const result = await uploadToCloudinary(req.file.buffer);
-    const user = await User.findById(req.user._id);
-    
-    if (!user.photos) user.photos = [];
-    user.photos.push(result.secure_url);
-    // Set as primary profile photo
-    user.profilePhoto = result.secure_url;
-    
-    await user.save({ validateBeforeSave: false });
-    
-    return success(res, { data: { photos: user.photos, profilePhoto: user.profilePhoto } }, 'Profile photo updated');
+    const user = req.user;
+
+    const photos = [...(user.photos || []), result.secure_url];
+    const updated = await User.updateById(user._id, {
+      photos,
+      profilePhoto: result.secure_url,
+    });
+
+    return success(res, { data: { photos: updated.photos, profilePhoto: updated.profilePhoto } }, 'Profile photo updated');
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -76,11 +79,16 @@ const deletePhoto = async (req, res) => {
   try {
     const user = req.user;
     const idx = parseInt(req.params.index);
-    if (isNaN(idx) || idx < 0 || idx >= user.photos.length) return error(res, 'Invalid photo index.', 400);
-    user.photos.splice(idx, 1);
-    if (user.profilePhoto === user.photos[idx]) user.profilePhoto = user.photos[0] || null;
-    await user.save({ validateBeforeSave: false });
-    return success(res, { data: { photos: user.photos } }, 'Photo deleted');
+    if (isNaN(idx) || idx < 0 || idx >= (user.photos || []).length) return error(res, 'Invalid photo index.', 400);
+
+    const photos = [...user.photos];
+    photos.splice(idx, 1);
+    const updates = { photos };
+    if (user.profilePhoto && !photos.includes(user.profilePhoto)) {
+      updates.profilePhoto = photos[0] || null;
+    }
+    const updated = await User.updateById(user._id, updates);
+    return success(res, { data: { photos: updated.photos } }, 'Photo deleted');
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -89,9 +97,9 @@ const deletePhoto = async (req, res) => {
 // PUT /api/profile/me/preferences
 const updatePreferences = async (req, res) => {
   try {
-    req.user.partnerPreferences = { ...req.user.partnerPreferences.toObject(), ...req.body };
-    await req.user.save({ validateBeforeSave: false });
-    return success(res, { data: { partnerPreferences: req.user.partnerPreferences } }, 'Preferences updated');
+    const merged = { ...(req.user.partnerPreferences || {}), ...req.body };
+    await User.updateById(req.user._id, { partnerPreferences: merged });
+    return success(res, { data: { partnerPreferences: merged } }, 'Preferences updated');
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -101,14 +109,11 @@ const updatePreferences = async (req, res) => {
 const getStats = async (req, res) => {
   try {
     const user = req.user;
-    const Match = require('../models/Match.model');
-    const ConnectionRequest = require('../models/ConnectionRequest.model');
-    const Conversation = require('../models/Conversation.model');
 
     const [matchCount, pendingRequests, conversations] = await Promise.all([
-      Match.countDocuments({ user: user._id }),
-      ConnectionRequest.countDocuments({ toUser: user._id, status: 'pending' }),
-      Conversation.countDocuments({ participants: user._id }),
+      Match.countForUser(user._id),
+      ConnectionRequest.countPendingFor(user._id),
+      Conversation.countForParticipant(user._id),
     ]);
 
     return success(res, {
@@ -129,9 +134,9 @@ const getStats = async (req, res) => {
 // PUT /api/profile/me/notifications
 const updateNotifications = async (req, res) => {
   try {
-    req.user.notificationPrefs = { ...req.user.notificationPrefs.toObject(), ...req.body };
-    await req.user.save({ validateBeforeSave: false });
-    return success(res, { data: { notificationPrefs: req.user.notificationPrefs } }, 'Preferences saved');
+    const merged = { ...(req.user.notificationPrefs || {}), ...req.body };
+    await User.updateById(req.user._id, { notificationPrefs: merged });
+    return success(res, { data: { notificationPrefs: merged } }, 'Preferences saved');
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -140,7 +145,7 @@ const updateNotifications = async (req, res) => {
 // DELETE /api/profile/me
 const deleteAccount = async (req, res) => {
   try {
-    await User.findByIdAndUpdate(req.user._id, { isActive: false });
+    await User.updateById(req.user._id, { isActive: false });
     res.clearCookie('refreshToken');
     return success(res, {}, 'Account deleted. We hope to see you again someday 💔');
   } catch (err) {

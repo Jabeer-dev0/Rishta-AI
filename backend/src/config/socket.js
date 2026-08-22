@@ -2,6 +2,7 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const Message = require('../models/Message.model');
 const Conversation = require('../models/Conversation.model');
+const User = require('../models/User.model');
 const { createNotification } = require('../services/notification.service');
 
 // Map: userId -> socketId
@@ -32,7 +33,7 @@ const initSocket = (server) => {
     }
 
     if (!token) return next(new Error('Authentication error'));
-    
+
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       socket.userId = decoded.id;
@@ -56,10 +57,7 @@ const initSocket = (server) => {
     // ── Join conversation room ────────────────────────────
     socket.on('chat:join', async ({ conversationId }) => {
       try {
-        const conv = await Conversation.findOne({
-          _id: conversationId,
-          participants: userId,
-        });
+        const conv = await Conversation.findByIdIfParticipant(conversationId, userId);
         if (!conv) return socket.emit('error', { message: 'Conversation not found or access denied' });
         socket.join(`conv:${conversationId}`);
         console.log(`📬 User ${userId} joined conv:${conversationId}`);
@@ -71,12 +69,7 @@ const initSocket = (server) => {
     // ── Send message ─────────────────────────────────────
     socket.on('chat:send-message', async ({ conversationId, text, mediaType = 'text', mediaUrl }) => {
       try {
-        const conv = await Conversation.findOne({
-          _id: conversationId,
-          participants: userId,
-          isActive: true,
-        }).populate('participants', 'name profilePhoto');
-
+        const conv = await Conversation.findByIdIfParticipant(conversationId, userId, true);
         if (!conv) return socket.emit('error', { message: 'Conversation not found or inactive' });
 
         const message = await Message.create({
@@ -89,18 +82,21 @@ const initSocket = (server) => {
           seenBy: [userId],
         });
 
-        // Update conversation last message
-        const recipientId = conv.participants.find(p => p._id.toString() !== userId)._id;
+        // Update conversation last message + recipient unread count
+        const recipientId = conv.participants.find((p) => p !== userId);
 
-        await Conversation.findByIdAndUpdate(conversationId, {
+        await Conversation.updateById(conversationId, {
           lastMessage: text || `[${mediaType}]`,
           lastMessageTime: new Date(),
           lastMessageBy: userId,
-          $inc: { [`unreadCount.${recipientId}`]: 1 },
         });
+        await Conversation.incrementUnread(conversationId, recipientId);
 
-        const populated = await Message.findById(message._id)
-          .populate('sender', 'name profilePhoto verified');
+        const sender = await User.findById(userId);
+        const populated = {
+          ...message,
+          sender: sender ? User.pickPublicFields(sender, 'name profilePhoto verified') : null,
+        };
 
         // Broadcast to conversation room
         io.to(`conv:${conversationId}`).emit('chat:new-message', populated);
@@ -127,13 +123,10 @@ const initSocket = (server) => {
     // ── Mark as read ─────────────────────────────────────
     socket.on('chat:read', async ({ conversationId }) => {
       try {
-        await Message.updateMany(
-          { conversation: conversationId, sender: { $ne: userId } },
-          { $addToSet: { seenBy: userId } }
-        );
-        await Conversation.findByIdAndUpdate(conversationId, {
-          [`unreadCount.${userId}`]: 0,
-        });
+        const conv = await Conversation.findByIdIfParticipant(conversationId, userId);
+        if (!conv) return;
+        await Message.markSeenInConversation(conversationId, userId);
+        await Conversation.resetUnread(conversationId, userId);
         socket.to(`conv:${conversationId}`).emit('chat:message-seen', { conversationId, seenBy: userId });
       } catch (err) {
         console.error('chat:read error', err.message);

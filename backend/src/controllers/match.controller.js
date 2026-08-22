@@ -12,18 +12,12 @@ const getMyMatches = async (req, res) => {
       return success(res, { data: { matches: [] } });
     }
 
-    let matches = await Match.find({ user: req.user._id, isActive: true })
-      .populate('matchedUser', 'name age city profession education religion interests photos profilePhoto verified')
-      .sort({ compatibilityScore: -1 })
-      .limit(20);
+    let matches = await Match.findForUser(req.user._id, { limit: 20 });
 
     // If no matches yet, generate them
     if (matches.length === 0) {
       await generateMatchPool(req.user._id);
-      matches = await Match.find({ user: req.user._id, isActive: true })
-        .populate('matchedUser', 'name age city profession education religion interests photos profilePhoto verified')
-        .sort({ compatibilityScore: -1 })
-        .limit(20);
+      matches = await Match.findForUser(req.user._id, { limit: 20 });
     }
 
     const matchesWithStatus = await attachConnectionStatus(matches, req.user._id);
@@ -37,8 +31,7 @@ const getMyMatches = async (req, res) => {
 // GET /api/matches/:matchId  — Single match with full AI report
 const getMatch = async (req, res) => {
   try {
-    const match = await Match.findOne({ _id: req.params.matchId, user: req.user._id })
-      .populate('matchedUser', 'name age city profession education religion interests photos profilePhoto verified bio familyBackground');
+    const match = await Match.findOneByIdAndUser(req.params.matchId, req.user._id);
     if (!match) return error(res, 'Match not found.', 404);
     return success(res, { data: { match } });
   } catch (err) {
@@ -49,11 +42,9 @@ const getMatch = async (req, res) => {
 // POST /api/matches/regenerate  — Force fresh match pool
 const regenerateMatches = async (req, res) => {
   try {
-    await Match.updateMany({ user: req.user._id }, { isActive: false });
+    await Match.deactivateAllForUser(req.user._id);
     await generateMatchPool(req.user._id);
-    const matches = await Match.find({ user: req.user._id, isActive: true })
-      .populate('matchedUser', 'name age city profession education religion interests photos profilePhoto verified')
-      .sort({ compatibilityScore: -1 });
+    const matches = await Match.findForUser(req.user._id, {});
     return success(res, { data: { matches } }, 'Matches regenerated!');
   } catch (err) {
     return error(res, err.message, 500);
@@ -66,44 +57,43 @@ const exploreProfiles = async (req, res) => {
     const { search, city, minAge, maxAge, education, religion, page = 1, limit = 12 } = req.query;
     const currentUser = req.user;
 
-    const query = {
-      _id: { $ne: currentUser._id },
-      isActive: true,
-      isBlocked: false,
-      gender: currentUser.gender === 'Male' ? 'Female' : 'Male',
-      role: 'user',
-    };
+    const oppositeGender = currentUser.gender === 'Male' ? 'Female' : 'Male';
+    const clauses = [
+      'id != ?', 'is_active = 1', 'is_blocked = 0',
+      'gender = ?', "role = 'user'",
+    ];
+    const params = [currentUser._id, oppositeGender];
 
     if (search) {
-      query.$or = [
-        { name: new RegExp(search, 'i') },
-        { profession: new RegExp(search, 'i') },
-        { city: new RegExp(search, 'i') },
-      ];
+      clauses.push('(name LIKE ? OR profession LIKE ? OR city LIKE ?)');
+      const like = `%${search}%`;
+      params.push(like, like, like);
     }
-    if (city) query.city = new RegExp(city, 'i');
-    if (minAge || maxAge) query.age = {};
-    if (minAge) query.age.$gte = parseInt(minAge);
-    if (maxAge) query.age.$lte = parseInt(maxAge);
-    if (education) query.education = new RegExp(education, 'i');
-    if (religion) query.religion = new RegExp(religion, 'i');
+    if (city) { clauses.push('city LIKE ?'); params.push(`%${city}%`); }
+    if (minAge) { clauses.push('age >= ?'); params.push(parseInt(minAge)); }
+    if (maxAge) { clauses.push('age <= ?'); params.push(parseInt(maxAge)); }
+    if (education) { clauses.push('education LIKE ?'); params.push(`%${education}%`); }
+    if (religion) { clauses.push('religion LIKE ?'); params.push(`%${religion}%`); }
 
+    const where = clauses.join(' AND ');
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const [profiles, total] = await Promise.all([
-      User.find(query)
-        .select('name age city profession education religion interests photos profilePhoto verified bio')
-        .skip(skip)
-        .limit(parseInt(limit))
-        .sort({ profileCompletion: -1, lastActiveAt: -1 }),
-      User.countDocuments(query),
+
+    const [rows, totalRow] = await Promise.all([
+      User.queryRows(
+        `SELECT * FROM users WHERE ${where}
+         ORDER BY profile_completion DESC, last_active_at DESC LIMIT ? OFFSET ?`,
+        [...params, parseInt(limit), skip]
+      ),
+      User.countRows(where, params),
     ]);
 
+    const profiles = rows.map(User.mapUser);
     const profilesWithStatus = await attachConnectionStatus(profiles, req.user._id);
 
     return success(res, {
       data: {
         profiles: profilesWithStatus,
-        pagination: { total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / parseInt(limit)) },
+        pagination: { total: totalRow, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(totalRow / parseInt(limit)) },
       }
     });
   } catch (err) {

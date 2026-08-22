@@ -25,10 +25,10 @@ const reportUser = async (req, res) => {
 const blockUser = async (req, res) => {
   try {
     const user = req.user;
-    if (!user.blockedUsers) user.blockedUsers = [];
-    if (!user.blockedUsers.includes(req.params.userId)) {
-      user.blockedUsers.push(req.params.userId);
-      await user.save({ validateBeforeSave: false });
+    const blocked = new Set(user.blockedUsers || []);
+    if (!blocked.has(req.params.userId)) {
+      blocked.add(req.params.userId);
+      await User.updateById(user._id, { blockedUsers: [...blocked] });
     }
     return success(res, {}, 'User blocked');
   } catch (err) {
@@ -39,7 +39,8 @@ const blockUser = async (req, res) => {
 // DELETE /api/reports/unblock/:userId
 const unblockUser = async (req, res) => {
   try {
-    await User.findByIdAndUpdate(req.user._id, { $pull: { blockedUsers: req.params.userId } });
+    const blocked = (req.user.blockedUsers || []).filter(id => id !== req.params.userId);
+    await User.updateById(req.user._id, { blockedUsers: blocked });
     return success(res, {}, 'User unblocked');
   } catch (err) {
     return error(res, err.message, 500);
@@ -49,8 +50,14 @@ const unblockUser = async (req, res) => {
 // GET /api/reports/blocked-users
 const getBlockedUsers = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).populate('blockedUsers', 'name profilePhoto city');
-    return success(res, { data: { blockedUsers: user.blockedUsers || [] } });
+    const blockedIds = req.user.blockedUsers || [];
+    const users = await Promise.all(
+      blockedIds.map(async (id) => {
+        const u = await User.findById(id);
+        return u ? User.pickPublicFields(u, 'name profilePhoto city') : null;
+      })
+    );
+    return success(res, { data: { blockedUsers: users.filter(Boolean) } });
   } catch (err) {
     return error(res, err.message, 500);
   }

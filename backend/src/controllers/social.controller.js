@@ -10,6 +10,8 @@ const analyzeSocialData = (platform) => ({
   dataPoints: Math.floor(200 + Math.random() * 200),
 });
 
+const CONNECTED_FIELDS = ['instagram', 'facebook', 'twitter'];
+
 // GET /api/social/:platform/oauth-url
 const getOAuthUrl = async (req, res) => {
   const { platform } = req.params;
@@ -31,18 +33,16 @@ const handleCallback = async (req, res) => {
     // Run social analysis (mock — replace with real API calls)
     const insights = analyzeSocialData(platform);
 
-    await User.findByIdAndUpdate(userId, {
-      $set: {
-        [`socialMediaConnected.${platform}`]: true,
-        'socialInsights.detectedInterests': insights.detectedInterests,
-        'socialInsights.lifestyleScore': insights.lifestyleScore,
-        'socialInsights.matchImprovement': insights.matchImprovement,
-        'socialInsights.dataPoints': insights.dataPoints,
-      }
-    });
+    const user = await User.findById(userId);
+    if (user) {
+      await User.updateById(userId, {
+        socialMediaConnected: { ...(user.socialMediaConnected || {}), [platform]: true },
+        socialInsights: { ...(user.socialInsights || {}), ...insights },
+      });
 
-    // Regenerate matches with social signals
-    generateMatchPool(userId).catch(() => {});
+      // Regenerate matches with social signals
+      generateMatchPool(userId).catch(() => {});
+    }
 
     // Redirect to frontend social media page with success
     res.redirect(`${process.env.FRONTEND_URL}/app/social-media?connected=${platform}`);
@@ -61,7 +61,7 @@ const analyzePlatform = async (req, res) => {
     if (!isConnected) return error(res, `${platform} is not connected.`, 400);
 
     const insights = analyzeSocialData(platform);
-    await User.findByIdAndUpdate(req.user._id, { $set: { socialInsights: insights } });
+    await User.updateById(req.user._id, { socialInsights: insights });
 
     return success(res, { data: { insights } }, `${platform} analyzed successfully!`);
   } catch (err) {
@@ -75,8 +75,8 @@ const disconnect = async (req, res) => {
     const { platform } = req.params;
     if (!['instagram', 'facebook', 'twitter'].includes(platform)) return error(res, 'Invalid platform.', 400);
 
-    await User.findByIdAndUpdate(req.user._id, {
-      $set: { [`socialMediaConnected.${platform}`]: false }
+    await User.updateById(req.user._id, {
+      socialMediaConnected: { ...(req.user.socialMediaConnected || {}), [platform]: false },
     });
 
     return success(res, {}, `${platform} disconnected successfully`);

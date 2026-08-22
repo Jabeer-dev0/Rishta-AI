@@ -1,5 +1,6 @@
 const ConnectionRequest = require('../models/ConnectionRequest.model');
 const Conversation = require('../models/Conversation.model');
+const User = require('../models/User.model');
 const { createNotification } = require('../services/notification.service');
 const { getIO } = require('../config/socket');
 const { success, error } = require('../utils/response.utils');
@@ -12,14 +13,8 @@ const sendRequest = async (req, res) => {
 
     if (fromUser.toString() === targetUserId) return error(res, "You can't send a request to yourself.", 400);
 
-    // Check for existing pending request
-    const existing = await ConnectionRequest.findOne({
-      $or: [
-        { fromUser, toUser: targetUserId },
-        { fromUser: targetUserId, toUser: fromUser },
-      ],
-      status: 'pending',
-    });
+    // Check for existing pending request in either direction
+    const existing = await ConnectionRequest.findPendingBetween(fromUser, targetUserId);
     if (existing) return error(res, 'A request already exists between you and this user.', 409);
 
     const request = await ConnectionRequest.create({
@@ -52,16 +47,13 @@ const sendRequest = async (req, res) => {
 // POST /api/connections/accept/:requestId
 const acceptRequest = async (req, res) => {
   try {
-    const request = await ConnectionRequest.findOne({
-      _id: req.params.requestId,
+    const request = await ConnectionRequest.findOneByIdAndFields(req.params.requestId, {
       toUser: req.user._id,
       status: 'pending',
     });
     if (!request) return error(res, 'Request not found.', 404);
 
-    request.status = 'accepted';
-    request.updatedAt = new Date();
-    await request.save();
+    const updatedRequest = await ConnectionRequest.updateStatus(request._id, 'accepted');
 
     // Create conversation
     const conversation = await Conversation.create({
@@ -83,8 +75,9 @@ const acceptRequest = async (req, res) => {
     io.to(request.fromUser.toString()).emit('connection:accepted', { conversation, acceptedBy: req.user._id });
     io.to(request.toUser.toString()).emit('connection:accepted', { conversation, acceptedBy: req.user._id });
 
-    await request.populate(['fromUser', 'toUser'], 'name city profilePhoto');
-    return success(res, { data: { request, conversation } }, 'Connection accepted! 💍');
+    // Populate fromUser/toUser for the response
+    const populated = await ConnectionRequest.attachBothUsers(updatedRequest);
+    return success(res, { data: { request: populated, conversation } }, 'Connection accepted! 💍');
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -93,13 +86,14 @@ const acceptRequest = async (req, res) => {
 // POST /api/connections/decline/:requestId
 const declineRequest = async (req, res) => {
   try {
-    const request = await ConnectionRequest.findOneAndUpdate(
-      { _id: req.params.requestId, toUser: req.user._id, status: 'pending' },
-      { status: 'declined', updatedAt: new Date() },
-      { new: true }
-    );
+    const request = await ConnectionRequest.findOneByIdAndFields(req.params.requestId, {
+      toUser: req.user._id,
+      status: 'pending',
+    });
     if (!request) return error(res, 'Request not found.', 404);
-    return success(res, { data: { request } }, 'Request declined');
+
+    const updated = await ConnectionRequest.updateStatus(request._id, 'declined');
+    return success(res, { data: { request: updated } }, 'Request declined');
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -108,13 +102,14 @@ const declineRequest = async (req, res) => {
 // POST /api/connections/cancel/:requestId
 const cancelRequest = async (req, res) => {
   try {
-    const request = await ConnectionRequest.findOneAndUpdate(
-      { _id: req.params.requestId, fromUser: req.user._id, status: 'pending' },
-      { status: 'cancelled', updatedAt: new Date() },
-      { new: true }
-    );
+    const request = await ConnectionRequest.findOneByIdAndFields(req.params.requestId, {
+      fromUser: req.user._id,
+      status: 'pending',
+    });
     if (!request) return error(res, 'Request not found.', 404);
-    return success(res, { data: { request } }, 'Request cancelled');
+
+    const updated = await ConnectionRequest.updateStatus(request._id, 'cancelled');
+    return success(res, { data: { request: updated } }, 'Request cancelled');
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -123,9 +118,7 @@ const cancelRequest = async (req, res) => {
 // GET /api/connections/received
 const getReceivedRequests = async (req, res) => {
   try {
-    const requests = await ConnectionRequest.find({ toUser: req.user._id, status: 'pending' })
-      .populate('fromUser', 'name age city profession profilePhoto verified')
-      .sort({ createdAt: -1 });
+    const requests = await ConnectionRequest.listReceived(req.user._id);
     return success(res, { data: { requests } });
   } catch (err) {
     return error(res, err.message, 500);
@@ -135,9 +128,7 @@ const getReceivedRequests = async (req, res) => {
 // GET /api/connections/sent
 const getSentRequests = async (req, res) => {
   try {
-    const requests = await ConnectionRequest.find({ fromUser: req.user._id })
-      .populate('toUser', 'name age city profession profilePhoto verified')
-      .sort({ createdAt: -1 });
+    const requests = await ConnectionRequest.listSent(req.user._id);
     return success(res, { data: { requests } });
   } catch (err) {
     return error(res, err.message, 500);
@@ -147,14 +138,10 @@ const getSentRequests = async (req, res) => {
 // POST /api/connections/unmatch/:conversationId
 const unmatch = async (req, res) => {
   try {
-    const conversation = await Conversation.findOne({
-      _id: req.params.conversationId,
-      participants: req.user._id,
-    });
+    const conversation = await Conversation.findByIdIfParticipant(req.params.conversationId, req.user._id);
     if (!conversation) return error(res, 'Conversation not found.', 404);
 
-    conversation.isActive = false;
-    await conversation.save();
+    await Conversation.updateById(conversation._id, { isActive: false });
     return success(res, {}, 'Unmatched successfully');
   } catch (err) {
     return error(res, err.message, 500);

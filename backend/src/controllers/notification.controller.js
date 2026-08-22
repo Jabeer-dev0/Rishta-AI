@@ -4,9 +4,7 @@ const { success, error } = require('../utils/response.utils');
 // GET /api/notifications
 const getAll = async (req, res) => {
   try {
-    const notifications = await Notification.find({ recipient: req.user._id })
-      .sort({ createdAt: -1 })
-      .limit(50);
+    const notifications = await Notification.listForRecipient(req.user._id, 50);
     return success(res, { data: { notifications } });
   } catch (err) {
     return error(res, err.message, 500);
@@ -16,10 +14,7 @@ const getAll = async (req, res) => {
 // POST /api/notifications/:id/read
 const markRead = async (req, res) => {
   try {
-    await Notification.findOneAndUpdate(
-      { _id: req.params.id, recipient: req.user._id },
-      { isRead: true }
-    );
+    await Notification.markRead(req.params.id, req.user._id);
     return success(res, {}, 'Marked as read');
   } catch (err) {
     return error(res, err.message, 500);
@@ -29,7 +24,7 @@ const markRead = async (req, res) => {
 // POST /api/notifications/read-all
 const markAllRead = async (req, res) => {
   try {
-    await Notification.updateMany({ recipient: req.user._id, isRead: false }, { isRead: true });
+    await Notification.markAllRead(req.user._id);
     return success(res, {}, 'All notifications marked as read');
   } catch (err) {
     return error(res, err.message, 500);
@@ -39,7 +34,7 @@ const markAllRead = async (req, res) => {
 // DELETE /api/notifications/:id
 const deleteOne = async (req, res) => {
   try {
-    await Notification.findOneAndDelete({ _id: req.params.id, recipient: req.user._id });
+    await Notification.deleteOne(req.params.id, req.user._id);
     return success(res, {}, 'Notification deleted');
   } catch (err) {
     return error(res, err.message, 500);
@@ -49,7 +44,7 @@ const deleteOne = async (req, res) => {
 // GET /api/notifications/unread-count
 const getUnreadCount = async (req, res) => {
   try {
-    const count = await Notification.countDocuments({ recipient: req.user._id, isRead: false });
+    const count = await Notification.countUnread(req.user._id);
     return success(res, { data: { count } });
   } catch (err) {
     return error(res, err.message, 500);
