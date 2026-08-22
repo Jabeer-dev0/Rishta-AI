@@ -1,36 +1,33 @@
-const { GoogleGenAI } = require('@google/genai');
-const axios = require('axios');
-
 /**
- * Face Match Service using the NEW @google/genai SDK
+ * Face Match Service — OpenAI vision (pay-as-you-go).
+ * Compares a stored profile photo against a live selfie.
  */
 
-// Initialize the NEW Gemini SDK
-// It automatically picks up GEMINI_API_KEY from process.env if available,
-// but we'll be explicit to ensure compatibility.
-const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const API_URL = 'https://api.openai.com/v1/chat/completions';
+const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 /**
- * Helper to fetch image from URL and convert to Gemini format
+ * Helper to fetch an image from URL and build an OpenAI image_url part
  */
-async function fetchImageForGemini(url) {
+async function fetchImagePart(url, label) {
+  const axios = require('axios');
   try {
-    const response = await axios.get(url, { responseType: 'arraybuffer' });
+    const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
     const mimeType = response.headers['content-type'] || 'image/jpeg';
     return {
-      inlineData: {
-        data: Buffer.from(response.data).toString('base64'),
-        mimeType
-      }
+      type: 'image_url',
+      image_url: {
+        url: `data:${mimeType};base64,${Buffer.from(response.data).toString('base64')}`,
+      },
     };
   } catch (error) {
-    console.error(`Failed to fetch image from ${url}:`, error.message);
+    console.error(`Failed to fetch ${label} from ${url}:`, error.message);
     throw new Error('Could not download image for verification');
   }
 }
 
 /**
- * Compare two image URLs using Gemini 2.5 Flash (via @google/genai)
+ * Compare two image URLs using OpenAI vision
  * @param {string} profileImageUrl - URL of existing profile photo
  * @param {string} selfieImageUrl  - URL of captured selfie
  * @returns {{ verified: boolean, similarity: number, message: string }}
@@ -40,65 +37,83 @@ const compareFaces = async (profileImageUrl, selfieImageUrl) => {
     return { verified: false, similarity: 0, message: 'Both images are required' };
   }
 
+  if (!process.env.OPENAI_API_KEY) {
+    return {
+      verified: false,
+      similarity: 0,
+      message: 'Verification is not configured (missing OPENAI_API_KEY).',
+    };
+  }
+
   try {
     const [profileImg, selfieImg] = await Promise.all([
-      fetchImageForGemini(profileImageUrl),
-      fetchImageForGemini(selfieImageUrl)
+      fetchImagePart(profileImageUrl, 'profile photo'),
+      fetchImagePart(selfieImageUrl, 'selfie'),
     ]);
 
     const prompt = `
-      You are a high-security identity verification system. 
-      Analyze these two images:
-      Image 1: The user's stored profile photo.
-      Image 2: A live selfie captured just now for verification.
+You are a high-security identity verification system.
+Analyze these two images:
+Image 1: The user's stored profile photo.
+Image 2: A live selfie captured just now for verification.
 
-      Your task:
-      1. Determine if both images contain exactly the same person.
-      2. Check if the profile photo (Image 1) is a real human photo or something else (like a meme, cartoon, or object).
-      3. Provide a similarity score between 0 and 100.
-      4. Provide a brief explanation.
+Your task:
+1. Determine if both images contain exactly the same person.
+2. Check if the profile photo (Image 1) is a real human photo or something else (like a meme, cartoon, or object).
+3. Provide a similarity score between 0 and 100.
+4. Provide a brief explanation.
 
-      Return the result ONLY as a JSON object with this exact format:
-      {
-        "verified": boolean,
-        "similarity": number,
-        "isRealHuman": boolean,
-        "explanation": "string"
-      }
-    `;
+Return the result ONLY as a JSON object with this exact format:
+{
+  "verified": boolean,
+  "similarity": number,
+  "isRealHuman": boolean,
+  "explanation": "string"
+}`;
 
-    // Using the NEW @google/genai SDK syntax
-    const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash', // Using 2.5 Flash as the standard stable target
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: prompt },
-            profileImg,
-            selfieImg
-          ]
-        }
-      ]
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        temperature: 0.1,
+        max_tokens: 300,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              profileImg,
+              selfieImg,
+            ],
+          },
+        ],
+      }),
     });
 
-    const text = response.text;
+    if (!res.ok) {
+      const errText = await res.text().catch(() => res.statusText);
+      throw new Error(`OpenAI API error ${res.status}: ${errText.slice(0, 300)}`);
+    }
 
-    // Parse the JSON from Gemini's response
-    const cleanText = text.replace(/```json|```/g, '').trim();
-    const data = JSON.parse(cleanText);
+    const data = await res.json();
+    const text = data.choices[0].message.content.trim().replace(/```json|```/g, '');
+    const parsed = JSON.parse(text);
 
     // Final logic: Must be a real human AND similarity >= 75
-    const isVerified = data.verified && data.isRealHuman && data.similarity >= 75;
+    const isVerified = parsed.verified && parsed.isRealHuman && parsed.similarity >= 75;
 
     return {
       verified: isVerified,
-      similarity: data.similarity,
-      message: data.explanation || (isVerified ? 'Identity verified successfully' : 'Verification failed')
+      similarity: parsed.similarity,
+      message: parsed.explanation || (isVerified ? 'Identity verified successfully' : 'Verification failed'),
     };
-
   } catch (err) {
-    console.error('[GenAIFaceMatch] Error:', err.message);
+    console.error('[OpenAIFaceMatch] Error:', err.message);
 
     // If quota exceeded or other error, do NOT verify the user
     return {
@@ -106,7 +121,7 @@ const compareFaces = async (profileImageUrl, selfieImageUrl) => {
       similarity: 0,
       message: err.message.includes('quota')
         ? 'Verification system busy. Please try again in a few minutes.'
-        : 'Verification system error. Please try again later.'
+        : 'Verification system error. Please try again later.',
     };
   }
 };

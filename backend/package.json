@@ -10,8 +10,6 @@
     "seed:destroy": "node src/seeder/seeder.js --destroy"
   },
   "dependencies": {
-    "@google/genai": "^1.50.1",
-    "@google/generative-ai": "^0.21.0",
     "axios": "^1.7.9",
     "bcryptjs": "^2.4.3",
     "canvas": "^3.2.3",
