@@ -1,0 +1,558 @@
+{
+  "info": {
+    "name": "Rishtaai API",
+    "description": "Complete API collection for Rishtaai AI Matchmaking Platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "BASE_URL", "value": "http://localhost:5000" },
+    { "key": "TOKEN", "value": "" },
+    { "key": "USER_ID", "value": "" },
+    { "key": "TARGET_USER_ID", "value": "" },
+    { "key": "REQUEST_ID", "value": "" },
+    { "key": "CONVERSATION_ID", "value": "" },
+    { "key": "MATCH_ID", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "🔐 Auth",
+      "item": [
+        {
+          "name": "Register",
+          "event": [{ "listen": "test", "script": { "exec": ["if(pm.response.code===201){const d=pm.response.json().data;pm.collectionVariables.set('TOKEN',d.accessToken);pm.collectionVariables.set('USER_ID',d.user._id);pm.test('Registered',()=>pm.expect(pm.response.code).to.eq(201));}"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{BASE_URL}}/api/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ahmed Raza\",\n  \"age\": 28,\n  \"gender\": \"Male\",\n  \"religion\": \"Islam\",\n  \"city\": \"Lahore\",\n  \"education\": \"Masters in Computer Science\",\n  \"profession\": \"Software Engineer\",\n  \"interests\": [\"Technology\", \"Travel\", \"Reading\"],\n  \"familyBackground\": \"Middle class family from Lahore with strong values.\",\n  \"bio\": \"Looking for a sincere life partner.\",\n  \"email\": \"ahmed@test.com\",\n  \"password\": \"Test@12345\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [{ "listen": "test", "script": { "exec": ["if(pm.response.code===200){const d=pm.response.json().data;pm.collectionVariables.set('TOKEN',d.accessToken);pm.collectionVariables.set('USER_ID',d.user._id);pm.test('Login OK',()=>pm.expect(pm.response.code).to.eq(200));}"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{BASE_URL}}/api/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"ahmed@test.com\",\n  \"password\": \"Test@12345\"\n}" }
+          }
+        },
+        {
+          "name": "Get Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/auth/me"
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": { "method": "POST", "header": [], "url": "{{BASE_URL}}/api/auth/refresh-token" }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{BASE_URL}}/api/auth/forgot-password",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"ahmed@test.com\"\n}" }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/auth/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🪪 CNIC Verification",
+      "item": [
+        {
+          "name": "Upload CNIC",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/verify/upload-cnic",
+            "body": { "mode": "formdata", "formdata": [{ "key": "cnic", "type": "file", "src": "" }] }
+          }
+        },
+        {
+          "name": "Upload Selfie",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/verify/upload-selfie",
+            "body": { "mode": "formdata", "formdata": [{ "key": "selfie", "type": "file", "src": "" }] }
+          }
+        },
+        {
+          "name": "Run Verification",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/verify/run-verification"
+          }
+        },
+        {
+          "name": "Get Verification Status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/verify/status"
+          }
+        }
+      ]
+    },
+    {
+      "name": "👤 Profile",
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/profile/me"
+          }
+        },
+        {
+          "name": "Update My Profile",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{BASE_URL}}/api/profile/me",
+            "body": { "mode": "raw", "raw": "{\n  \"city\": \"Islamabad\",\n  \"bio\": \"Updated bio here.\",\n  \"interests\": [\"Technology\", \"Cooking\", \"Hiking\"]\n}" }
+          }
+        },
+        {
+          "name": "Get My Stats",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/profile/me/stats"
+          }
+        },
+        {
+          "name": "Update Partner Preferences",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{BASE_URL}}/api/profile/me/preferences",
+            "body": { "mode": "raw", "raw": "{\n  \"ageRange\": { \"min\": 22, \"max\": 32 },\n  \"cities\": [\"Lahore\", \"Islamabad\"],\n  \"education\": [\"Bachelors\", \"Masters\"],\n  \"religions\": [\"Islam\"]\n}" }
+          }
+        },
+        {
+          "name": "Update Notification Prefs",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{BASE_URL}}/api/profile/me/notifications",
+            "body": { "mode": "raw", "raw": "{\n  \"matches\": true,\n  \"messages\": true,\n  \"requests\": true,\n  \"marketing\": false\n}" }
+          }
+        },
+        {
+          "name": "Upload Profile Photo",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/profile/me/photo",
+            "body": { "mode": "formdata", "formdata": [{ "key": "photo", "type": "file", "src": "" }] }
+          }
+        },
+        {
+          "name": "Get Another User's Profile",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/profile/{{TARGET_USER_ID}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🤖 AI Matches",
+      "item": [
+        {
+          "name": "Get My AI Matches",
+          "event": [{ "listen": "test", "script": { "exec": ["const d=pm.response.json().data;if(d&&d.matches&&d.matches.length>0){pm.collectionVariables.set('MATCH_ID',d.matches[0]._id);pm.collectionVariables.set('TARGET_USER_ID',d.matches[0].matchedUser._id);}pm.test('Has matches',()=>pm.expect(pm.response.code).to.eq(200));"] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/matches"
+          }
+        },
+        {
+          "name": "Explore Profiles",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/api/matches/explore?page=1&limit=12",
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "12" },
+                { "key": "city", "value": "", "disabled": true },
+                { "key": "minAge", "value": "22", "disabled": true },
+                { "key": "maxAge", "value": "35", "disabled": true },
+                { "key": "religion", "value": "Islam", "disabled": true },
+                { "key": "search", "value": "doctor", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Single Match Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/matches/{{MATCH_ID}}"
+          }
+        },
+        {
+          "name": "Regenerate Matches",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/matches/regenerate"
+          }
+        }
+      ]
+    },
+    {
+      "name": "✨ AI Compatibility",
+      "item": [
+        {
+          "name": "Generate Compatibility Report",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{BASE_URL}}/api/ai/compatibility-report",
+            "body": { "mode": "raw", "raw": "{\n  \"targetUserId\": \"{{TARGET_USER_ID}}\"\n}" }
+          }
+        },
+        {
+          "name": "Get Cached AI Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/ai/report/{{MATCH_ID}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "💌 Connections",
+      "item": [
+        {
+          "name": "Send Connection Request",
+          "event": [{ "listen": "test", "script": { "exec": ["if(pm.response.code===201){pm.collectionVariables.set('REQUEST_ID',pm.response.json().data.request._id);}"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{BASE_URL}}/api/connections/send/{{TARGET_USER_ID}}",
+            "body": { "mode": "raw", "raw": "{\n  \"message\": \"Assalam o Alaikum! I came across your profile and would love to connect.\"\n}" }
+          }
+        },
+        {
+          "name": "Get Received Requests",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/connections/received"
+          }
+        },
+        {
+          "name": "Get Sent Requests",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/connections/sent"
+          }
+        },
+        {
+          "name": "Accept Request",
+          "event": [{ "listen": "test", "script": { "exec": ["if(pm.response.code===200){const d=pm.response.json().data;if(d.conversation)pm.collectionVariables.set('CONVERSATION_ID',d.conversation._id);}"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/connections/accept/{{REQUEST_ID}}"
+          }
+        },
+        {
+          "name": "Decline Request",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/connections/decline/{{REQUEST_ID}}"
+          }
+        },
+        {
+          "name": "Cancel Request",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/connections/cancel/{{REQUEST_ID}}"
+          }
+        },
+        {
+          "name": "Unmatch",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/connections/unmatch/{{CONVERSATION_ID}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "💬 Chat",
+      "item": [
+        {
+          "name": "Get All Conversations",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/chat/conversations"
+          }
+        },
+        {
+          "name": "Get Conversation Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/chat/conversations/{{CONVERSATION_ID}}"
+          }
+        },
+        {
+          "name": "Get Messages (Paginated)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/api/chat/conversations/{{CONVERSATION_ID}}/messages?page=1&limit=30",
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "30" }]
+            }
+          }
+        },
+        {
+          "name": "Mark Messages as Read",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/chat/conversations/{{CONVERSATION_ID}}/read"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🧠 Personality Test",
+      "item": [
+        {
+          "name": "Get Questions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/personality/questions"
+          }
+        },
+        {
+          "name": "Submit Answers",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{BASE_URL}}/api/personality/submit",
+            "body": { "mode": "raw", "raw": "{\n  \"answers\": [\n    { \"questionId\": 1, \"score\": 4 },\n    { \"questionId\": 2, \"score\": 5 },\n    { \"questionId\": 3, \"score\": 4 },\n    { \"questionId\": 4, \"score\": 3 },\n    { \"questionId\": 5, \"score\": 4 },\n    { \"questionId\": 6, \"score\": 3 },\n    { \"questionId\": 7, \"score\": 5 },\n    { \"questionId\": 8, \"score\": 4 },\n    { \"questionId\": 9, \"score\": 3 },\n    { \"questionId\": 10, \"score\": 4 }\n  ]\n}" }
+          }
+        },
+        {
+          "name": "Get My Result",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/personality/result"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📱 Social Media",
+      "item": [
+        {
+          "name": "Get Instagram OAuth URL",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/social/instagram/oauth-url"
+          }
+        },
+        {
+          "name": "Get Facebook OAuth URL",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/social/facebook/oauth-url"
+          }
+        },
+        {
+          "name": "Analyze Platform (Manual)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{BASE_URL}}/api/social/analyze",
+            "body": { "mode": "raw", "raw": "{\n  \"platform\": \"instagram\"\n}" }
+          }
+        },
+        {
+          "name": "Disconnect Platform",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/social/disconnect/instagram"
+          }
+        },
+        {
+          "name": "Get Social Insights",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/social/insights"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔔 Notifications",
+      "item": [
+        {
+          "name": "Get All Notifications",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/notifications"
+          }
+        },
+        {
+          "name": "Get Unread Count",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/notifications/unread-count"
+          }
+        },
+        {
+          "name": "Mark All Read",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/notifications/read-all"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🚨 Reports & Block",
+      "item": [
+        {
+          "name": "Report a User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{BASE_URL}}/api/reports",
+            "body": { "mode": "raw", "raw": "{\n  \"reportedUserId\": \"{{TARGET_USER_ID}}\",\n  \"reason\": \"fake_profile\",\n  \"description\": \"This profile appears to be fake.\"\n}" }
+          }
+        },
+        {
+          "name": "Block a User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/reports/block/{{TARGET_USER_ID}}"
+          }
+        },
+        {
+          "name": "Unblock a User",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/reports/unblock/{{TARGET_USER_ID}}"
+          }
+        },
+        {
+          "name": "Get Blocked Users",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/reports/blocked-users"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🛡️ Admin",
+      "item": [
+        {
+          "name": "Get Platform Stats",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/admin/stats"
+          }
+        },
+        {
+          "name": "List All Users",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/api/admin/users?page=1&limit=20",
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Get Open Reports",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/admin/reports"
+          }
+        },
+        {
+          "name": "Manually Verify User CNIC",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/admin/users/{{TARGET_USER_ID}}/verify"
+          }
+        },
+        {
+          "name": "Block User (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+            "url": "{{BASE_URL}}/api/admin/users/{{TARGET_USER_ID}}/block"
+          }
+        }
+      ]
+    },
+    {
+      "name": "❤️ Health Check",
+      "item": [
+        {
+          "name": "Health Check",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('API running',()=>pm.expect(pm.response.json().success).to.be.true);"] } }],
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/health"
+          }
+        }
+      ]
+    }
+  ]
+}

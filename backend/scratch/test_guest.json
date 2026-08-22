@@ -1,0 +1,4 @@
+{
+  "dataA": "{\"name\":\"John Doe\",\"age\":\"28\",\"gender\":\"Male\",\"religion\":\"Christianity\",\"city\":\"New York\",\"education\":\"Masters\",\"profession\":\"Engineer\",\"interests\":\"Hiking\"}",
+  "dataB": "{\"name\":\"Jane Smith\",\"age\":\"26\",\"gender\":\"Female\",\"religion\":\"Christianity\",\"city\":\"New York\",\"education\":\"Bachelors\",\"profession\":\"Designer\",\"interests\":\"Painting\"}"
+}

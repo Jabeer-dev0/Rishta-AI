@@ -1,0 +1,4 @@
+node_modules
+.env
+*_logs.txt
+logs.txt
