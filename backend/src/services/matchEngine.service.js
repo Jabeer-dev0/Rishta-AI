@@ -15,10 +15,12 @@ const WEIGHTS = {
 };
 
 /** Jaccard similarity between two string arrays */
-const jaccardSimilarity = (a = [], b = []) => {
-  if (!a.length || !b.length) return 0;
-  const setA = new Set(a.map(s => s.toLowerCase()));
-  const setB = new Set(b.map(s => s.toLowerCase()));
+const jaccardSimilarity = (a, b) => {
+  const listA = (Array.isArray(a) ? a : []).filter(Boolean).map(s => String(s).toLowerCase());
+  const listB = (Array.isArray(b) ? b : []).filter(Boolean).map(s => String(s).toLowerCase());
+  if (!listA.length || !listB.length) return 0;
+  const setA = new Set(listA);
+  const setB = new Set(listB);
   const intersection = [...setA].filter(x => setB.has(x)).length;
   const union = new Set([...setA, ...setB]).size;
   return union === 0 ? 0 : (intersection / union) * 100;
@@ -43,9 +45,12 @@ const personalityCompatibility = (scoresA = {}, scoresB = {}) => {
 const EDUCATION_LEVELS = [
   'Matric', 'Intermediate', 'Bachelor', 'Masters', 'PhD', 'Other',
 ];
-const educationScore = (a = '', b = '') => {
-  const ia = EDUCATION_LEVELS.findIndex(e => a.toLowerCase().includes(e.toLowerCase()));
-  const ib = EDUCATION_LEVELS.findIndex(e => b.toLowerCase().includes(e.toLowerCase()));
+const educationScore = (a, b) => {
+  const sa = String(a || '').toLowerCase();
+  const sb = String(b || '').toLowerCase();
+  if (!sa || !sb) return 60;
+  const ia = EDUCATION_LEVELS.findIndex(e => sa.includes(e.toLowerCase()));
+  const ib = EDUCATION_LEVELS.findIndex(e => sb.includes(e.toLowerCase()));
   if (ia === -1 || ib === -1) return 60;
   const diff = Math.abs(ia - ib);
   return Math.max(100 - diff * 20, 20);
@@ -136,8 +141,8 @@ const generateMatchReasons = (userA, userB) => {
   if (userA.religion?.toLowerCase() === userB.religion?.toLowerCase()) {
     reasons.push(`Both practice ${userA.religion}`);
   }
-  const sharedInterests = (userA.interests || []).filter(i =>
-    (userB.interests || []).map(x => x.toLowerCase()).includes(i.toLowerCase())
+  const sharedInterests = (userA.interests || []).filter(Boolean).filter(i =>
+    (userB.interests || []).filter(Boolean).map(x => String(x).toLowerCase()).includes(String(i).toLowerCase())
   );
   if (sharedInterests.length > 0) {
     reasons.push(`Shared interests: ${sharedInterests.slice(0, 3).join(', ')}`);
