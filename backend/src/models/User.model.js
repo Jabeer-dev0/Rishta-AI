@@ -49,6 +49,7 @@ const mapUser = (row) => {
     profession: row.profession,
     familyBackground: row.family_background,
     bio: row.bio,
+    interests: safeParse(row.interests, []),
     photos: safeParse(row.photos, []),
     profilePhoto: row.profile_photo,
     verified: !!row.verified,
@@ -80,7 +81,9 @@ const mapUser = (row) => {
     updatedAt: row.updated_at,
     zodiacSign: getZodiacSign(row.date_of_birth),
   };
-  JSON_FIELDS.forEach((f) => { if (user[f] == null) delete user[f]; });
+  // NOTE: keep defaulted arrays/objects present (frontend maps over them);
+  // only drop truly optional sparse fields.
+  ['socialTokens', 'socialInsights'].forEach((f) => { if (user[f] == null) delete user[f]; });
   // Attach instance-style helpers so controllers keep working unchanged.
   user.toPublicProfile = () => stripSensitive(user);
   user.calculateCompletion = () => calculateProfileCompletion(user);
