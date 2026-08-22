@@ -1,29 +1,64 @@
-const { GoogleGenAI } = require('@google/genai');
+/**
+ * AI Service — OpenAI (pay-as-you-go).
+ * Uses native fetch against the OpenAI Chat Completions API,
+ * so no extra SDK dependency is required.
+ *
+ * Falls back to deterministic mock responses when OPENAI_API_KEY
+ * is not configured (local dev / free mode).
+ */
 
-let genAI;
+const API_URL = 'https://api.openai.com/v1/chat/completions';
+const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-const getGenAI = () => {
-  if (!genAI) {
-    if (!process.env.GEMINI_API_KEY) {
-      throw new Error('GEMINI_API_KEY is not set in environment variables');
-    }
-    genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const hasApiKey = () =>
+  !!process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key';
+
+/**
+ * Low-level chat completion helper.
+ * @param {Array}  messages  - OpenAI chat messages
+ * @param {Object} [options]  - { json: true } forces a JSON object response
+ */
+const chatCompletion = async (messages, { json = false } = {}) => {
+  const body = {
+    model: MODEL,
+    messages,
+    temperature: json ? 0.4 : 0.8,
+    max_tokens: 900,
+  };
+  if (json) body.response_format = { type: 'json_object' };
+
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => res.statusText);
+    throw new Error(`OpenAI API error ${res.status}: ${errText.slice(0, 300)}`);
   }
-  return genAI;
+
+  const data = await res.json();
+  return data.choices[0].message.content.trim();
+};
+
+/** Extract a JSON object/array even when wrapped in markdown fences. */
+const parseJsonLoose = (text) => {
+  const match = text.match(/\{[\s\S]*\}/) || text.match(/\[[\s\S]*\]/);
+  if (!match) throw new Error('Invalid AI response format');
+  return JSON.parse(match[0]);
 };
 
 /**
- * Generate a compatibility report between two users using Gemini
+ * Generate a compatibility report between two users using OpenAI
  */
 const generateCompatibilityReport = async (userA, userB) => {
-  // If no API key, return a mock report for development
-  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key') {
-    return generateMockReport(userA, userB);
-  }
+  if (!hasApiKey()) return generateMockReport(userA, userB);
 
   try {
-    const client = getGenAI();
-
     const prompt = `
 You are a matrimonial compatibility expert. Analyze these two people and generate a compatibility report.
 
@@ -58,20 +93,13 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
   "report": "<150-word narrative paragraph about their compatibility>"
 }`;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [{ text: prompt }]
-    });
-
-    const text = response.text.trim();
-
-    // Extract JSON even if wrapped in markdown
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Invalid AI response format');
-
-    return JSON.parse(jsonMatch[0]);
+    const text = await chatCompletion(
+      [{ role: 'user', content: prompt }],
+      { json: true }
+    );
+    return parseJsonLoose(text);
   } catch (err) {
-    console.error('[AIService] Gemini error:', err.message);
+    console.error('[AIService] OpenAI error:', err.message);
     return generateMockReport(userA, userB);
   }
 };
@@ -80,28 +108,22 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
  * Generate "Why this match?" explanation
  */
 const generateWhyThisMatch = async (userA, userB) => {
-  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key') {
+  if (!hasApiKey()) {
     return [
       `Both share ${userA.religion} values`,
-      `Similar educational backgrounds`,
+      'Similar educational backgrounds',
       `Complementary interests: ${(userA.interests || []).slice(0, 2).join(', ')}`,
     ];
   }
 
   try {
-    const client = getGenAI();
     const prompt = `
 In 3 short bullet points (max 15 words each), explain why ${userA.name} and ${userB.name} are a good matrimonial match.
 ${userA.name}: ${userA.religion}, ${userA.profession}, from ${userA.city}, interests: ${(userA.interests || []).join(', ')}
 ${userB.name}: ${userB.religion}, ${userB.profession}, from ${userB.city}, interests: ${(userB.interests || []).join(', ')}
 Return ONLY a JSON array of 3 strings.`;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [{ text: prompt }]
-    });
-
-    const text = response.text.trim();
+    const text = await chatCompletion([{ role: 'user', content: prompt }]);
     const match = text.match(/\[[\s\S]*\]/);
     if (match) return JSON.parse(match[0]);
     return text.split('\n').filter(Boolean).slice(0, 3);
@@ -130,7 +152,7 @@ const generateMockReport = (userA, userB) => {
     ],
     matchReasons: [
       `Both are ${userA.religion} with strong family values`,
-      `Highly compatible personality profiles`,
+      'Highly compatible personality profiles',
       `Shared interests: ${(userA.interests || []).slice(0, 2).join(', ')}`,
     ],
     graphData: {
@@ -144,89 +166,78 @@ const generateMockReport = (userA, userB) => {
 };
 
 /**
+ * Build OpenAI multimodal content parts for a person's data.
+ * Images are sent as vision input; other documents degrade gracefully.
+ */
+const buildPersonContentParts = (label, formData, fileEntry) => {
+  const parts = [{ type: 'text', text: `${label} Form Data: ${JSON.stringify(formData)}` }];
+
+  if (fileEntry && fileEntry[0]) {
+    const f = fileEntry[0];
+    if ((f.mimetype || '').startsWith('image/')) {
+      parts.push({ type: 'text', text: `${label} attached this photo/document image:` });
+      parts.push({
+        type: 'image_url',
+        image_url: { url: `data:${f.mimetype};base64,${f.buffer.toString('base64')}` },
+      });
+    } else {
+      parts.push({
+        type: 'text',
+        text: `${label} also attached a document (${f.originalname}) which could not be read directly; rely on the form data above.`,
+      });
+    }
+  }
+  return parts;
+};
+
+/**
  * Evaluate compatibility for guest users (Form or File)
  */
 const evaluateGuestCompatibility = async (dataA, dataB, files = {}) => {
-  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key') {
-    return generateMockReport(dataA, dataB);
-  }
+  if (!hasApiKey()) return generateMockReport(dataA, dataB);
 
   try {
-    const client = getGenAI();
+    const systemPrompt = `You are a matrimonial compatibility expert. Analyze two guest users and generate a detailed compatibility report.
 
-    const contents = [
-      {
-        text: `You are a matrimonial compatibility expert. Analyze these two guest users and generate a detailed compatibility report. 
-      Data can come from either form fields or attached documents. 
-      
-      Compare them based on:
-      1. Personality & Values
-      2. Education & Career
-      3. Lifestyle & Interests
-      4. Long-term Stability
-      
-      Return ONLY valid JSON (no markdown) with this structure:
-      {
-        "status": "Completely" | "Future" | "Risk",
-        "compatibilityScore": <0-100>,
-        "report": "<Detailed paragraph, strictly 4-5 lines max>",
-        "strengths": ["...", "..."],
-        "risks": ["...", "..."],
-        "verdict": "A summary sentence",
-        "graphData": {
-          "personality": <0-100>,
-          "lifestyle": <0-100>,
-          "emotional": <0-100>,
-          "values": <0-100>
-        }
-      }` }
+Compare them based on:
+1. Personality & Values
+2. Education & Career
+3. Lifestyle & Interests
+4. Long-term Stability
+
+Return ONLY valid JSON (no markdown) with this structure:
+{
+  "status": "Completely" | "Future" | "Risk",
+  "compatibilityScore": <0-100>,
+  "report": "<Detailed paragraph, strictly 4-5 lines max>",
+  "strengths": ["...", "..."],
+  "risks": ["...", "..."],
+  "verdict": "A summary sentence",
+  "graphData": {
+    "personality": <0-100>,
+    "lifestyle": <0-100>,
+    "emotional": <0-100>,
+    "values": <0-100>
+  }
+}`;
+
+    const userContent = [
+      { type: 'text', text: systemPrompt },
+      ...buildPersonContentParts('Person A', dataA, files.fileA),
+      ...buildPersonContentParts('Person B', dataB, files.fileB),
     ];
 
-    // Handle Person A
-    if (files.fileA) {
-      contents.push({ text: "Person A Document:" });
-      contents.push({
-        inlineData: {
-          data: files.fileA[0].buffer.toString('base64'),
-          mimeType: files.fileA[0].mimetype
-        }
-      });
-    } else {
-      contents.push({ text: `Person A Form Data: ${JSON.stringify(dataA)}` });
-    }
-
-    // Handle Person B
-    if (files.fileB) {
-      contents.push({ text: "Person B Document:" });
-      contents.push({
-        inlineData: {
-          data: files.fileB[0].buffer.toString('base64'),
-          mimeType: files.fileB[0].mimetype
-        }
-      });
-    } else {
-      contents.push({ text: `Person B Form Data: ${JSON.stringify(dataB)}` });
-    }
-
-    const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: contents
-    });
-
-    const text = response.text.trim();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Invalid AI response format');
-
-    return JSON.parse(jsonMatch[0]);
+    const text = await chatCompletion([{ role: 'user', content: userContent }], { json: true });
+    return parseJsonLoose(text);
   } catch (err) {
-    console.error('[AIService] Guest Compatibility error:', err);
+    console.error('[AIService] Guest Compatibility error:', err.message);
     return {
       status: 'Future',
       compatibilityScore: 75,
       report: 'We encountered an error analyzing your data, but based on common patterns, you show potential for a strong future together. We recommend focusing on shared values.',
       strengths: ['Shared goals', 'Educational background'],
       risks: ['Communication styles'],
-      verdict: 'Good potential with some effort.'
+      verdict: 'Good potential with some effort.',
     };
   }
 };
@@ -258,14 +269,13 @@ const generateStarInsight = async (userA, userB) => {
   const signA = getZodiacSign(userA.dateOfBirth);
   const signB = getZodiacSign(userB.dateOfBirth);
 
-  if (!signA || !signB) return "Celestial data incomplete for this pair.";
+  if (!signA || !signB) return 'Celestial data incomplete for this pair.';
 
-  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key') {
+  if (!hasApiKey()) {
     return `As a ${signA}, ${userA.name} shares a natural cosmic harmony with ${userB.name}, who is a ${signB}. Their stars align to create a balanced and meaningful connection.`;
   }
 
   try {
-    const client = getGenAI();
     const prompt = `
 You are an expert astrologer and matrimonial counselor. Analyze the celestial compatibility between these two people based on their Zodiac signs.
 
@@ -276,13 +286,9 @@ Generate a poetic and insightful 2-sentence "Celestial Insight" about their comp
 
 Return ONLY the text.`;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [{ text: prompt }]
-    });
-
-    return response.text.trim();
+    return await chatCompletion([{ role: 'user', content: prompt }]);
   } catch (err) {
+    console.error('[AIService] Star insight error:', err.message);
     return `The alignment between ${signA} and ${signB} suggests a unique journey of shared growth and mutual understanding.`;
   }
 };
@@ -291,5 +297,5 @@ module.exports = {
   generateCompatibilityReport,
   generateWhyThisMatch,
   evaluateGuestCompatibility,
-  generateStarInsight
+  generateStarInsight,
 };
