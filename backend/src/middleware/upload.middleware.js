@@ -1,7 +1,5 @@
 const multer = require('multer');
-const cloudinary = require('../config/cloudinary');
-const fs = require('fs');
-const path = require('path');
+const { uploadObject, buildKey } = require('../services/r2.service');
 
 const memoryStorage = multer.memoryStorage();
 
@@ -44,60 +42,45 @@ const uploadDocs = multer({
   { name: 'fileB', maxCount: 1 }
 ]);
 
-/**
- * Generic upload to Cloudinary using stream
- * @param {Buffer} buffer - File buffer
- * @param {Object} options - Cloudinary upload options
- */
-const uploadToCloudinary = (buffer, options = {}) => {
-  return new Promise((resolve, reject) => {
-    const { Readable } = require('stream');
+// CNIC front + back images for identity verification
+const uploadCnicFields = multer({
+  storage: memoryStorage,
+  fileFilter: imageFilter,
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+}).fields([
+  { name: 'cnicFront', maxCount: 1 },
+  { name: 'cnicBack', maxCount: 1 }
+]);
 
-    const uploadOptions = {
-      folder: 'rishtaai/general',
-      resource_type: 'image',
-      secure: true,
-      ...options,
-      // Pass credentials explicitly to ensure they are used for signing
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
-    };
-
-    const cld_upload_stream = cloudinary.uploader.upload_stream(
-      uploadOptions,
-      (error, result) => {
-        if (error) {
-          console.error('[Cloudinary] Detailed Upload Error:', JSON.stringify(error, null, 2));
-          return reject(error);
-        }
-        resolve(result);
-      }
-    );
-
-    const readableStream = new Readable();
-    readableStream.push(buffer);
-    readableStream.push(null);
-    readableStream.pipe(cld_upload_stream);
-  });
+/** Ext from mimetype (jpeg/png/webp/...), fallback jpg */
+const extFromMime = (mime) => {
+  const map = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+  return map[mime] || 'jpg';
 };
 
-// Upload CNIC to private folder
-const uploadCnicToCloudinary = (buffer) =>
-  uploadToCloudinary(buffer, {
-    folder: 'rishtaai/cnic_private',
-  });
+/**
+ * Upload an image buffer to R2. Returns { key, secure_url } so existing
+ * controllers keep working without changes.
+ */
+const uploadImageToR2 = async (buffer, folder, contentType = 'image/jpeg') =>
+  uploadObject(buffer, buildKey(folder, extFromMime(contentType)), contentType);
+
+// Upload CNIC scan (private-ish folder in the same bucket)
+const uploadCnicToCloudinary = async (buffer, contentType = 'image/jpeg') => {
+  const r = await uploadImageToR2(buffer, 'rishtaai/cnic_private', contentType);
+  return { ...r, secure_url: r.url };
+};
 
 // Upload selfie/profile photo
-const uploadPhotoToCloudinary = (buffer) =>
-  uploadToCloudinary(buffer, {
-    folder: 'rishtaai/profiles',
-  });
+const uploadPhotoToCloudinary = async (buffer, contentType = 'image/jpeg') => {
+  const r = await uploadImageToR2(buffer, 'rishtaai/profiles', contentType);
+  return { ...r, secure_url: r.url };
+};
 
-module.exports = { 
-  uploadSingle, 
-  uploadDocs, 
-  uploadToCloudinary, 
-  uploadCnicToCloudinary, 
-  uploadPhotoToCloudinary 
+module.exports = {
+  uploadSingle,
+  uploadDocs,
+  uploadCnicFields,
+  uploadCnicToCloudinary,
+  uploadPhotoToCloudinary
 };

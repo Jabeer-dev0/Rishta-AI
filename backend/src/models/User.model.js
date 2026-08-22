@@ -8,7 +8,7 @@ const bcrypt = require('bcryptjs');
 const { query, queryOne, newId, nowISO } = require('../config/db');
 
 const JSON_FIELDS = ['interests', 'photos', 'partnerPreferences', 'personalityScores', 'socialMediaConnected', 'socialTokens', 'socialInsights', 'blockedUsers', 'notificationPrefs'];
-const BOOL_FIELDS = ['verified', 'isActive', 'isBlocked'];
+const BOOL_FIELDS = ['verified', 'isActive', 'isBlocked', 'cnicVerified'];
 
 const getZodiacSign = (dob) => {
   if (!dob) return null;
@@ -52,6 +52,11 @@ const mapUser = (row) => {
     photos: safeParse(row.photos, []),
     profilePhoto: row.profile_photo,
     verified: !!row.verified,
+    cnicNumber: row.cnic_number || null,
+    cnicFrontUrl: row.cnic_front_url,
+    cnicBackUrl: row.cnic_back_url,
+    cnicVerified: !!row.cnic_verified,
+    verifiedAt: row.verified_at,
     cnicImageUrl: row.cnic_image_url,
     selfieImageUrl: row.selfie_image_url,
     verificationStatus: row.verification_status,
@@ -87,7 +92,7 @@ function safeParse(value, fallback) {
   try { return typeof value === 'string' ? JSON.parse(value) : value; } catch { return fallback; }
 }
 
-const SENSITIVE = ['password', 'cnicImageUrl', 'selfieImageUrl', 'socialTokens', 'passwordResetToken', 'passwordResetExpires', 'blockedUsers'];
+const SENSITIVE = ['password', 'cnicNumber', 'cnicImageUrl', 'selfieImageUrl', 'socialTokens', 'passwordResetToken', 'passwordResetExpires', 'blockedUsers'];
 
 const stripSensitive = (user) => {
   const clone = { ...user };
@@ -109,6 +114,8 @@ const COLUMN_MAP = {
   gender: 'gender', religion: 'religion', city: 'city', country: 'country', education: 'education',
   profession: 'profession', familyBackground: 'family_background', bio: 'bio',
   interests: 'interests', photos: 'photos', profilePhoto: 'profile_photo', verified: 'verified',
+  cnicNumber: 'cnic_number', cnicFrontUrl: 'cnic_front_url', cnicBackUrl: 'cnic_back_url',
+  cnicVerified: 'cnic_verified', verifiedAt: 'verified_at',
   cnicImageUrl: 'cnic_image_url', selfieImageUrl: 'selfie_image_url', verificationStatus: 'verification_status',
   partnerPreferences: 'partner_preferences', personalityScores: 'personality_scores',
   socialMediaConnected: 'social_media_connected', socialTokens: 'social_tokens',
@@ -145,6 +152,19 @@ const findByEmail = async (email, includePassword = true) => {
   if (!includePassword && user) delete user.password;
   return user;
 };
+
+/** Find a user by normalized CNIC (13 digits). */
+const findByCnic = async (cnic) => {
+  const row = await queryOne('SELECT * FROM users WHERE cnic_number = ?', [normalizeCnic(cnic)]);
+  return mapUser(row);
+};
+
+/** Normalize a CNIC string: keep digits only (handles 35202-1234567-1 formats). */
+function normalizeCnic(value) {
+  if (!value) return '';
+  const digits = String(value).replace(/\D/g, '');
+  return digits.length === 13 ? digits : digits; // caller validates length
+}
 
 /** Valid (non-expired) password reset token lookup. */
 const findByResetToken = async (hashedToken) => {
@@ -250,6 +270,7 @@ const incrementField = async (id, column, by = 1) => {
 module.exports = {
   findById,
   findByEmail,
+  findByCnic,
   findByResetToken,
   create,
   updateById,
@@ -265,5 +286,6 @@ module.exports = {
   incrementField,
   comparePassword,
   hashPassword,
+  normalizeCnic,
   calculateProfileCompletion,
 };

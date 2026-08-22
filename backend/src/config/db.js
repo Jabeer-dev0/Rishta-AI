@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS users (
   photos TEXT DEFAULT '[]',
   profile_photo TEXT,
   verified INTEGER DEFAULT 0,
+  cnic_number TEXT,
+  cnic_front_url TEXT,
+  cnic_back_url TEXT,
+  cnic_verified INTEGER DEFAULT 0,
+  verified_at TEXT,
   cnic_image_url TEXT,
   selfie_image_url TEXT,
   verification_status TEXT DEFAULT 'unverified',
@@ -212,10 +217,36 @@ const nowISO = () => new Date().toISOString();
 
 const newId = () => crypto.randomBytes(12).toString('hex');
 
+/**
+ * Lightweight migrations for tables created before new columns existed.
+ * ALTER TABLE fails if the column already exists — that's fine, we ignore it.
+ */
+const MIGRATIONS = [
+  `ALTER TABLE users ADD COLUMN cnic_number TEXT`,
+  `ALTER TABLE users ADD COLUMN cnic_front_url TEXT`,
+  `ALTER TABLE users ADD COLUMN cnic_back_url TEXT`,
+  `ALTER TABLE users ADD COLUMN cnic_verified INTEGER DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN verified_at TEXT`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_cnic ON users(cnic_number) WHERE cnic_number IS NOT NULL`,
+];
+
+const runMigrations = async () => {
+  for (const sql of MIGRATIONS) {
+    try {
+      await exec(sql);
+    } catch (err) {
+      const msg = String(err.message || '');
+      if (msg.includes('duplicate column name') || msg.includes('already exists')) continue;
+      throw err;
+    }
+  }
+};
+
 /** Verify credentials and auto-create tables at boot. */
 const init = async () => {
   await query('SELECT 1');
   await exec(SCHEMA_SQL);
+  await runMigrations();
   console.log('✅ Cloudflare D1 connected & schema ready');
 };
 

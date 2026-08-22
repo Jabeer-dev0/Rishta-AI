@@ -3,6 +3,7 @@ const User = require('../models/User.model');
 const { sendTokens, verifyRefreshToken, generateAccessToken } = require('../utils/jwt.utils');
 const { success, error } = require('../utils/response.utils');
 const { sendWelcomeEmail, sendPasswordResetEmail } = require('../services/email.service');
+const { isValidCnicFormat } = require('../services/cnic.service');
 
 const { uploadPhotoToCloudinary } = require('../middleware/upload.middleware');
 
@@ -10,15 +11,28 @@ const { uploadPhotoToCloudinary } = require('../middleware/upload.middleware');
 const register = async (req, res) => {
   try {
     const { email, password, name, dateOfBirth, age, gender, religion, city, country,
-      education, profession, interests, familyBackground, bio } = req.body;
+      education, profession, interests, familyBackground, bio, cnic } = req.body;
 
     if (await User.findByEmail(email)) {
       return error(res, 'Email already registered.', 409);
     }
 
+    // One person = one account: optional CNIC at signup must be unique
+    let normalizedCnic = null;
+    if (cnic) {
+      normalizedCnic = User.normalizeCnic(cnic);
+      if (!isValidCnicFormat(normalizedCnic)) {
+        return error(res, 'CNIC number 13 digits ka hona chahiye (e.g. 35201-1234567-1).', 400);
+      }
+      const existing = await User.findByCnic(normalizedCnic);
+      if (existing) {
+        return error(res, 'Ye CNIC pehle se registered hai. Har shakhs sirf aik account bana sakta hai.', 409);
+      }
+    }
+
     let profilePhoto = '';
     if (req.file) {
-      const result = await uploadPhotoToCloudinary(req.file.buffer);
+      const result = await uploadPhotoToCloudinary(req.file.buffer, req.file.mimetype);
       profilePhoto = result.secure_url;
     }
 
@@ -28,7 +42,8 @@ const register = async (req, res) => {
       education, profession,
       interests: Array.isArray(interests) ? interests : (interests || '').split(',').map(s => s.trim()).filter(Boolean),
       familyBackground, bio,
-      profilePhoto
+      profilePhoto,
+      cnicNumber: normalizedCnic
     });
 
     const { accessToken } = sendTokens(res, user._id);
