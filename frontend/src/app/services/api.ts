@@ -21,16 +21,41 @@ axiosInstance.interceptors.request.use((config) => {
   return config;
 });
 
-// ─── Handle 401 responses (session expired) ───────────────────────────────────
+// ─── Handle 401 responses: auto-refresh session then retry ──────────────────
+// The access-token cookie lives ~15 minutes; on expiry we silently call
+// /auth/refresh-token (which re-issues cookies) and retry the original request.
+let refreshPromise: Promise<boolean> | null = null;
+
+const tryRefreshSession = (): Promise<boolean> => {
+  if (!refreshPromise) {
+    refreshPromise = axiosInstance
+      .post('/auth/refresh-token')
+      .then(() => true)
+      .catch(() => false)
+      .finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+};
+
 axiosInstance.interceptors.response.use(
   (res) => res,
-  (err) => {
+  async (err) => {
     const status = err.response?.status;
-    const url: string = err.config?.url ?? '';
-    const isAuthRoute = url.includes('/auth/');
+    const config = err.config ?? {};
+    const url: string = config.url ?? '';
 
-    // If 401 on a protected route, the cookie is likely expired/invalid
-    if (status === 401 && !isAuthRoute) {
+    const isAuthFlow =
+      url.includes('/auth/refresh-token') ||
+      url.includes('/auth/login') ||
+      url.includes('/auth/register');
+
+    // On 401 from a protected route: attempt one silent refresh + retry
+    if (status === 401 && !config._retried && !isAuthFlow) {
+      const refreshed = await tryRefreshSession();
+      if (refreshed) {
+        config._retried = true;
+        return axiosInstance.request(config);
+      }
       removeToken(); // Clear local state backup
       window.dispatchEvent(new CustomEvent('auth:session-expired'));
     }

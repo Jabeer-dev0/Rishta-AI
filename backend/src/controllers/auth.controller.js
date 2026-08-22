@@ -196,8 +196,10 @@ const refreshToken = async (req, res) => {
     const user = await User.findById(decoded.id);
     if (!user) return error(res, 'User not found.', 401);
 
-    const accessToken = generateAccessToken(user._id);
-    return success(res, { data: { accessToken } }, 'Token refreshed');
+    // Re-issue BOTH httpOnly cookies (access token was likely expired)
+    const { accessToken } = sendTokens(res, user._id);
+    await User.updateById(user._id, { lastActiveAt: new Date() });
+    return success(res, { data: { accessToken, user: user.toPublicProfile() } }, 'Token refreshed');
   } catch {
     return error(res, 'Invalid or expired refresh token.', 401);
   }
